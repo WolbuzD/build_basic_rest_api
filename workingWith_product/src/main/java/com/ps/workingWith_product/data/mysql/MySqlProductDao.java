@@ -15,149 +15,140 @@ import java.util.List;
 
 @Component
 public class MySqlProductDao implements ProductDao {
-    private DataSource dataSource;
+
+    private final DataSource dataSource;
 
     @Autowired
-    public MySqlProductDao(DataSource dataSource){
+    public MySqlProductDao(DataSource dataSource) {
         this.dataSource = dataSource;
     }
 
-    public List<Product> getAll(){
-        // Set an empty an array
+    @Override
+    public List<Product> getAll() {
         List<Product> products = new ArrayList<>();
+        String query = "SELECT ProductId, ProductName, UnitPrice FROM products ORDER BY ProductId";
 
-        // Define our query
-        String query = "SELECT * FROM products;";
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement preparedStatement = connection.prepareStatement(query);
+             ResultSet resultSet = preparedStatement.executeQuery()) {
 
-        try(
-                // Create connections
-                Connection connection = dataSource.getConnection();
-                // Create PreparedStatement
-                PreparedStatement preparedStatement = connection.prepareStatement(query);
-                // Create a result set
-                ResultSet resultSet = preparedStatement.executeQuery();
-        ){
-            // Loop through the resultset
-            if(resultSet.next()){
-                do{
-                    Product product = parseProduct(resultSet);
-                    // Add record to array
-                    products.add(product);
-                } while(resultSet.next());
-            } else {
-                System.out.println("No products found");
+            while (resultSet.next()) {
+                Product product = parseProduct(resultSet);
+                products.add(product);
             }
-        } catch (SQLException e){
+
+        } catch (SQLException e) {
+            System.err.println("Error retrieving all products: " + e.getMessage());
             e.printStackTrace();
+            throw new RuntimeException("Failed to retrieve products from database", e);
         }
 
-        // Return the array
         return products;
     }
 
-    public Product getById(int id){
-        // Query
-        String query = "SELECT * FROM products WHERE ProductId=?;";
+    @Override
+    public Product getById(int id) {
+        String query = "SELECT ProductId, ProductName, UnitPrice FROM products WHERE ProductId = ?";
 
-        try(
-                Connection connection = dataSource.getConnection();
-                PreparedStatement preparedStatement = connection.prepareStatement(query);
-        ){
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement preparedStatement = connection.prepareStatement(query)) {
+
             preparedStatement.setInt(1, id);
-            try(
-                    ResultSet resultSet = preparedStatement.executeQuery();
-            ){
-                if(resultSet.next()){
+
+            try (ResultSet resultSet = preparedStatement.executeQuery()) {
+                if (resultSet.next()) {
                     return parseProduct(resultSet);
-                } else {
-                    System.out.println("No product found with that id");
                 }
             }
+
         } catch (SQLException e) {
+            System.err.println("Error retrieving product with ID " + id + ": " + e.getMessage());
             e.printStackTrace();
+            throw new RuntimeException("Failed to retrieve product from database", e);
         }
 
         return null;
     }
 
-    public Product create(Product product){
-        // query
-        String query = "INSERT INTO products(ProductName, UnitPrice) VALUES (?,?)";
+    @Override
+    public Product create(Product product) {
+        String query = "INSERT INTO products (ProductName, UnitPrice) VALUES (?, ?)";
 
-        try(
-                Connection connection = dataSource.getConnection();
-                PreparedStatement preparedStatement = connection.prepareStatement(query, PreparedStatement.RETURN_GENERATED_KEYS);
-        ){
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement preparedStatement = connection.prepareStatement(query, PreparedStatement.RETURN_GENERATED_KEYS)) {
+
             preparedStatement.setString(1, product.getProductName());
             preparedStatement.setDouble(2, product.getUnitPrice());
 
             int rowsAffected = preparedStatement.executeUpdate();
 
-            // Was a product was created?
-            if(rowsAffected > 0){
-                // Retrieve the primary keys that were created...
-                ResultSet resultSet = preparedStatement.getGeneratedKeys();
-
-                // Is there a product ID?
-                if(resultSet.next()){
-                    // Get the primary key of the new product
-                    int generatedProductId = resultSet.getInt(1);
-                    return getById(generatedProductId);
+            if (rowsAffected > 0) {
+                try (ResultSet generatedKeys = preparedStatement.getGeneratedKeys()) {
+                    if (generatedKeys.next()) {
+                        int generatedProductId = generatedKeys.getInt(1);
+                        return getById(generatedProductId);
+                    }
                 }
-            } else {
-                System.out.println("No product created...");
             }
-        } catch (SQLException e){
+
+        } catch (SQLException e) {
+            System.err.println("Error creating product: " + e.getMessage());
             e.printStackTrace();
+            throw new RuntimeException("Failed to create product in database", e);
         }
 
         return null;
     }
 
-    public void update(int id, Product product){
-        // Query
-        String query = "UPDATE products SET ProductName = ?, UnitPrice = ? WHERE ProductId = ?;";
+    @Override
+    public void update(int id, Product product) {
+        String query = "UPDATE products SET ProductName = ?, UnitPrice = ? WHERE ProductId = ?";
 
-        // Try Catch
-        try(
-                // Connection
-                Connection connection = dataSource.getConnection();
-                // PreparedStatement
-                PreparedStatement preparedStatement = connection.prepareStatement(query);
-        ){
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement preparedStatement = connection.prepareStatement(query)) {
+
             preparedStatement.setString(1, product.getProductName());
             preparedStatement.setDouble(2, product.getUnitPrice());
             preparedStatement.setInt(3, id);
 
-            preparedStatement.executeUpdate();
-        } catch (SQLException e){
+            int rowsAffected = preparedStatement.executeUpdate();
+
+            if (rowsAffected == 0) {
+                System.out.println("No product found with ID: " + id);
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Error updating product with ID " + id + ": " + e.getMessage());
             e.printStackTrace();
+            throw new RuntimeException("Failed to update product in database", e);
         }
     }
 
-    public void delete(int id){
-        // Query
-        String query = "DELETE FROM products WHERE ProductId = ?;";
-        // Try Catch
-        try(
-                // Connection
-                Connection connection = dataSource.getConnection();
-                // PreparedStatement
-                PreparedStatement preparedStatement = connection.prepareStatement(query);
-        ){
+    @Override
+    public void delete(int id) {
+        String query = "DELETE FROM products WHERE ProductId = ?";
+
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement preparedStatement = connection.prepareStatement(query)) {
+
             preparedStatement.setInt(1, id);
-            preparedStatement.executeUpdate();
-        } catch (SQLException e){
+            int rowsAffected = preparedStatement.executeUpdate();
+
+            if (rowsAffected == 0) {
+                System.out.println("No product found with ID: " + id);
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Error deleting product with ID " + id + ": " + e.getMessage());
             e.printStackTrace();
+            throw new RuntimeException("Failed to delete product from database", e);
         }
     }
 
-
-    public Product parseProduct(ResultSet resultSet) throws SQLException {
+    private Product parseProduct(ResultSet resultSet) throws SQLException {
         int productId = resultSet.getInt("ProductId");
         String productName = resultSet.getString("ProductName");
         double unitPrice = resultSet.getDouble("UnitPrice");
         return new Product(productId, productName, unitPrice);
     }
-
 }
